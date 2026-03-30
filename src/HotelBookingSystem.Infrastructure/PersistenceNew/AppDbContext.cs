@@ -21,8 +21,7 @@ public class AppDbContext : DbContext
     public DbSet<RoomType> RoomTypes => Set<RoomType>();
     public DbSet<Room> Rooms => Set<Room>();
     public DbSet<Bed> Beds => Set<Bed>();
-    public DbSet<PropertyReview> PropertyReviews { get; }
-    public DbSet<PropertyImage> PropertyImages => Set<PropertyImage>();
+    public DbSet<PropertyReview> PropertyReviews => Set<PropertyReview>(); public DbSet<PropertyImage> PropertyImages => Set<PropertyImage>();
     public DbSet<RoomImage> RoomImages => Set<RoomImage>();
     public DbSet<Guest> Guests => Set<Guest>();
     public DbSet<Reservation> Reservations => Set<Reservation>();
