@@ -13,5 +13,5 @@ public class PropertyReview
     public DateTime CreatedAtUtc { get; set; }
 
     public Property Property { get; set; } = default!;
-    public AppUser User { get; set; } = default!;
+    public User User { get; set; } = default!;
 }
