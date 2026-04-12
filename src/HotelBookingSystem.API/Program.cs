@@ -118,11 +118,12 @@ using (var scope = app.Services.CreateScope())
     await DatabaseInitializer.SeedAsync(dbContext);
 }
 
-if (app.Environment.IsDevelopment())
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "HotelBookingSystem API v1");
+    c.RoutePrefix = "swagger";
+});
 
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseStaticFiles();
