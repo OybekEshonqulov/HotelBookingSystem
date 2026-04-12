@@ -26,10 +26,7 @@ public class UserManagementService : IUserManagementService
 
     public async Task<UserDto> CreateAsync(CreateUserRequestDto request, CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new BadRequestException("Tenant aniqlanmadi.");
-
-        var tenantId = _currentUserService.TenantId.Value;
+        var tenantId = GetTenantId();
 
         var exists = await _context.AppUsers.AnyAsync(x =>
             x.TenantId == tenantId && x.Email == request.Email, cancellationToken);
@@ -65,28 +62,12 @@ public class UserManagementService : IUserManagementService
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        return await _context.AppUsers
-            .AsNoTracking()
-            .Where(x => x.Id == user.Id)
-            .Select(x => new UserDto
-            {
-                Id = x.Id,
-                TenantId = x.TenantId,
-                FirstName = x.FirstName,
-                LastName = x.LastName,
-                Email = x.Email,
-                IsActive = x.IsActive,
-                Roles = x.UserRoles.Select(ur => ur.Role.Name).ToList()
-            })
-            .FirstAsync(cancellationToken);
+        return await BuildUserDtoAsync(user.Id, cancellationToken);
     }
 
     public async Task<PagedResultDto<UserDto>> GetPagedAsync(UserFilterRequestDto request, CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new BadRequestException("Tenant aniqlanmadi.");
-
-        var tenantId = _currentUserService.TenantId.Value;
+        var tenantId = GetTenantId();
 
         var query = _context.AppUsers
             .AsNoTracking()
@@ -133,12 +114,66 @@ public class UserManagementService : IUserManagementService
         };
     }
 
+    public async Task<UserDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var tenantId = GetTenantId();
+
+        var exists = await _context.AppUsers
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == id && x.TenantId == tenantId, cancellationToken);
+
+        if (!exists)
+            return null;
+
+        return await BuildUserDtoAsync(id, cancellationToken);
+    }
+
+    public async Task<UserDto> UpdateAsync(Guid id, UpdateUserRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var tenantId = GetTenantId();
+
+        var user = await _context.AppUsers
+            .FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId, cancellationToken);
+
+        if (user is null)
+            throw new NotFoundException("User topilmadi.");
+
+        var exists = await _context.AppUsers.AnyAsync(x =>
+            x.TenantId == tenantId &&
+            x.Id != id &&
+            x.Email == request.Email,
+            cancellationToken);
+
+        if (exists)
+            throw new ConflictException("Bu email bilan boshqa user mavjud.");
+
+        user.FirstName = request.FirstName.Trim();
+        user.LastName = request.LastName.Trim();
+        user.Email = request.Email.Trim();
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return await BuildUserDtoAsync(user.Id, cancellationToken);
+    }
+
+    public async Task<UserDto> UpdateStatusAsync(Guid id, UpdateUserStatusRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var tenantId = GetTenantId();
+
+        var user = await _context.AppUsers
+            .FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId, cancellationToken);
+
+        if (user is null)
+            throw new NotFoundException("User topilmadi.");
+
+        user.IsActive = request.IsActive;
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return await BuildUserDtoAsync(user.Id, cancellationToken);
+    }
+
     public async Task<UserDto> AssignRolesAsync(AssignRolesRequestDto request, CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new NotFoundException("Tenant aniqlanmadi.");
-
-        var tenantId = _currentUserService.TenantId.Value;
+        var tenantId = GetTenantId();
 
         var user = await _context.AppUsers
             .FirstOrDefaultAsync(x => x.Id == request.UserId && x.TenantId == tenantId, cancellationToken);
@@ -166,10 +201,22 @@ public class UserManagementService : IUserManagementService
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+        return await BuildUserDtoAsync(user.Id, cancellationToken);
+    }
 
+    private Guid GetTenantId()
+    {
+        if (!_currentUserService.TenantId.HasValue)
+            throw new BadRequestException("Tenant aniqlanmadi.");
+
+        return _currentUserService.TenantId.Value;
+    }
+
+    private async Task<UserDto> BuildUserDtoAsync(Guid userId, CancellationToken cancellationToken)
+    {
         return await _context.AppUsers
             .AsNoTracking()
-            .Where(x => x.Id == user.Id)
+            .Where(x => x.Id == userId)
             .Select(x => new UserDto
             {
                 Id = x.Id,

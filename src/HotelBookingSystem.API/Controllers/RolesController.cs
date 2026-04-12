@@ -31,6 +31,19 @@ public class RolesController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken)
+    {
+        if (!_currentUserService.Permissions.Contains("roles.view"))
+            return Forbid();
+
+        var result = await _roleManagementService.GetByIdAsync(id, cancellationToken);
+        if (result is null)
+            return NotFound();
+
+        return Ok(result);
+    }
+
     [HttpGet("permissions")]
     public async Task<IActionResult> GetPermissions(CancellationToken cancellationToken)
     {
@@ -49,5 +62,25 @@ public class RolesController : ControllerBase
 
         var result = await _roleManagementService.CreateAsync(request, cancellationToken);
         return Ok(result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateRoleRequestDto request, CancellationToken cancellationToken)
+    {
+        if (!_currentUserService.Permissions.Contains("roles.edit"))
+            return Forbid();
+
+        var result = await _roleManagementService.UpdateAsync(id, request, cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
+    {
+        if (!_currentUserService.Permissions.Contains("roles.edit"))
+            return Forbid();
+
+        await _roleManagementService.DeleteAsync(id, cancellationToken);
+        return NoContent();
     }
 }

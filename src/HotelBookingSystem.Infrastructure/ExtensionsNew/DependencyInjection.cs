@@ -41,6 +41,8 @@ public static class DependencyInjection
         services.AddScoped<IUserManagementService, UserManagementService>();
         services.AddScoped<IFileStorageService, FileStorageService>();
         services.AddScoped<IMediaService, MediaService>();
+        services.AddScoped<IPublicCatalogService, PublicCatalogService>();
+        services.AddScoped<IPublicBookingService, PublicBookingService>();
         return services;
     }
 }

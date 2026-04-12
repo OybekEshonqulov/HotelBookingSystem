@@ -31,6 +31,19 @@ public class UsersController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken)
+    {
+        if (!_currentUserService.Permissions.Contains("users.view"))
+            return Forbid();
+
+        var result = await _userManagementService.GetByIdAsync(id, cancellationToken);
+        if (result is null)
+            return NotFound();
+
+        return Ok(result);
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateUserRequestDto request, CancellationToken cancellationToken)
     {
@@ -38,6 +51,26 @@ public class UsersController : ControllerBase
             return Forbid();
 
         var result = await _userManagementService.CreateAsync(request, cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequestDto request, CancellationToken cancellationToken)
+    {
+        if (!_currentUserService.Permissions.Contains("users.edit"))
+            return Forbid();
+
+        var result = await _userManagementService.UpdateAsync(id, request, cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}/status")]
+    public async Task<IActionResult> UpdateStatus(Guid id, [FromBody] UpdateUserStatusRequestDto request, CancellationToken cancellationToken)
+    {
+        if (!_currentUserService.Permissions.Contains("users.edit"))
+            return Forbid();
+
+        var result = await _userManagementService.UpdateStatusAsync(id, request, cancellationToken);
         return Ok(result);
     }
 
