@@ -44,6 +44,9 @@ public class CurrentUserService : ICurrentUserService
         _httpContextAccessor.HttpContext?.User?.FindAll(ClaimTypes.Role).Select(x => x.Value).ToList()
         ?? new List<string>();
 
+    public bool IsSuperAdmin =>
+        Roles.Contains("SuperAdmin", StringComparer.OrdinalIgnoreCase);
+
     public List<string> Permissions =>
         _httpContextAccessor.HttpContext?.User?.FindAll("permission").Select(x => x.Value).ToList()
         ?? new List<string>();

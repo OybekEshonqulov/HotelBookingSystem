@@ -9,7 +9,7 @@ namespace HotelBookingSystem.Domain.EntitiesNew
     {
         public Guid PropertyId { get; set; }
         public Property Property { get; set; } = default!;
-
+        public bool IsPublished { get; set; }
         public string Name { get; set; } = default!;
         public int Capacity { get; set; }
         public decimal BasePrice { get; set; }

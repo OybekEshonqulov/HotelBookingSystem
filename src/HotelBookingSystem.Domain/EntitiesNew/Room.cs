@@ -10,7 +10,7 @@ namespace HotelBookingSystem.Domain.EntitiesNew
     {
         public Guid PropertyId { get; set; }
         public Property Property { get; set; } = default!;
-
+        public bool IsPublished { get; set; }
         public Guid RoomTypeId { get; set; }
         public RoomType RoomType { get; set; } = default!;
 

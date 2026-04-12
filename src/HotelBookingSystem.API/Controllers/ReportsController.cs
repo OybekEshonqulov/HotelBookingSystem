@@ -1,4 +1,6 @@
-﻿using HotelBookingSystem.Application.InterfacesNew.ServicesNew;
+﻿using HotelBookingSystem.Application.DTOsNew.ReportNew;
+using HotelBookingSystem.Application.InterfacesNew;
+using HotelBookingSystem.Application.InterfacesNew.ServicesNew;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,35 +14,21 @@ public class ReportsController : ControllerBase
     private readonly IReportService _reportService;
     private readonly ICurrentUserService _currentUserService;
 
-    public ReportsController(
-        IReportService reportService,
-        ICurrentUserService currentUserService)
+    public ReportsController(IReportService reportService, ICurrentUserService currentUserService)
     {
         _reportService = reportService;
         _currentUserService = currentUserService;
     }
 
-    [HttpGet("dashboard/{propertyId:guid}")]
-    public async Task<IActionResult> GetDashboard(Guid propertyId, CancellationToken cancellationToken)
-    {
-        if (!_currentUserService.Permissions.Contains("reports.view"))
-            return Forbid();
-
-        var result = await _reportService.GetDashboardStatsAsync(propertyId, cancellationToken);
-        return Ok(result);
-    }
-
-    [HttpGet("occupancy/{propertyId:guid}")]
-    public async Task<IActionResult> GetOccupancy(
-        Guid propertyId,
-        [FromQuery] DateTime checkInDate,
-        [FromQuery] DateTime checkOutDate,
+    [HttpPost("tenant-dashboard")]
+    public async Task<IActionResult> GetTenantDashboard(
+        [FromBody] TenantDashboardRequestDto request,
         CancellationToken cancellationToken)
     {
-        if (!_currentUserService.Permissions.Contains("reports.view"))
+        if (!_currentUserService.Permissions.Contains(PermissionCodes.ReportsView))
             return Forbid();
 
-        var result = await _reportService.GetOccupancyAsync(propertyId, checkInDate, checkOutDate, cancellationToken);
+        var result = await _reportService.GetTenantDashboardAsync(request, cancellationToken);
         return Ok(result);
     }
 }

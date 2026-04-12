@@ -34,7 +34,7 @@ public class PublicBookingService : IPublicBookingService
             .Include(x => x.Tenant)
             .FirstOrDefaultAsync(x => x.Id == request.PropertyId, cancellationToken);
 
-        if (property is null || property.Tenant.Status != PropertyStatus.Active)
+        if (property is null || property.Tenant.Status != PropertyStatus.Active || !property.IsPublished)
             throw new NotFoundException("Property topilmadi.");
 
         var tenantId = property.TenantId;
@@ -71,10 +71,12 @@ public class PublicBookingService : IPublicBookingService
         if (roomIds.Count > 0)
         {
             var rooms = await _context.Rooms
-                .AsNoTracking()
-                .Include(x => x.RoomType)
-                .Where(x => roomIds.Contains(x.Id) && x.PropertyId == request.PropertyId && x.TenantId == tenantId)
-                .ToListAsync(cancellationToken);
+    .AsNoTracking()
+    .Include(x => x.RoomType)
+    .Where(x => roomIds.Contains(x.Id) && x.PropertyId == request.PropertyId && x.TenantId == tenantId)
+    .Where(x => x.IsPublished)
+    .Where(x => x.RoomType.IsPublished)
+    .ToListAsync(cancellationToken);
 
             if (rooms.Count != roomIds.Count)
                 throw new NotFoundException("Roomlardan biri topilmadi.");
@@ -99,11 +101,14 @@ public class PublicBookingService : IPublicBookingService
         if (bedIds.Count > 0)
         {
             var beds = await _context.Beds
-                .AsNoTracking()
-                .Include(x => x.Room)
-                .ThenInclude(r => r.RoomType)
-                .Where(x => bedIds.Contains(x.Id) && x.TenantId == tenantId)
-                .ToListAsync(cancellationToken);
+    .AsNoTracking()
+    .Include(x => x.Room)
+    .ThenInclude(r => r.RoomType)
+    .Where(x => bedIds.Contains(x.Id) && x.TenantId == tenantId)
+    .Where(x => x.IsPublished)
+    .Where(x => x.Room.IsPublished)
+    .Where(x => x.Room.RoomType.IsPublished)
+    .ToListAsync(cancellationToken);
 
             if (beds.Count != bedIds.Count)
                 throw new NotFoundException("Bedlardan biri topilmadi.");

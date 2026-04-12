@@ -7,5 +7,6 @@ public class RoomDto
     public Guid PropertyId { get; set; }
     public Guid RoomTypeId { get; set; }
     public string Number { get; set; } = default!;
-    public int Floor { get; set; }
+    public int? Floor { get; set; }
+    public bool IsPublished { get; set; }
 }

@@ -11,6 +11,6 @@ public class TenantDto
     public string? PhoneNumber { get; set; }
     public string? Email { get; set; }
     public string? Address { get; set; }
-    public string CurrencyCode { get; set; } = default!;
-    public string TimeZone { get; set; } = default!;
+    public string CurrencyCode { get; set; } = "UZS";
+    public string TimeZone { get; set; } = "Asia/Tashkent";
 }

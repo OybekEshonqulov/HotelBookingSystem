@@ -8,4 +8,5 @@ public class RoomTypeDto
     public string Name { get; set; } = default!;
     public int Capacity { get; set; }
     public decimal BasePrice { get; set; }
+    public bool IsPublished { get; set; }
 }

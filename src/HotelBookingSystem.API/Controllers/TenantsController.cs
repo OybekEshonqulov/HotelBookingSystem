@@ -1,4 +1,5 @@
 ﻿using HotelBookingSystem.Application.DTOsNew.TenantNew;
+using HotelBookingSystem.Application.InterfacesNew;
 using HotelBookingSystem.Application.InterfacesNew.ServicesNew;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,17 +23,42 @@ public class TenantsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
     {
+        if (!_currentUserService.Permissions.Contains(PermissionCodes.TenantsView))
+            return Forbid();
+
         var result = await _tenantService.GetAllAsync(cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMyTenant(CancellationToken cancellationToken)
+    {
+        var result = await _tenantService.GetMyTenantAsync(cancellationToken);
+        if (result is null)
+            return NotFound();
+
         return Ok(result);
     }
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateTenantRequestDto request, CancellationToken cancellationToken)
     {
-        if (!_currentUserService.Permissions.Contains("tenants.create"))
+        if (!_currentUserService.Permissions.Contains(PermissionCodes.TenantsCreate))
             return Forbid();
 
         var result = await _tenantService.CreateAsync(request, cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpPost("create-with-owner")]
+    public async Task<IActionResult> CreateWithOwner(
+        [FromBody] CreateTenantWithOwnerRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (!_currentUserService.Permissions.Contains(PermissionCodes.TenantsCreate))
+            return Forbid();
+
+        var result = await _tenantService.CreateWithOwnerAsync(request, cancellationToken);
         return Ok(result);
     }
 }

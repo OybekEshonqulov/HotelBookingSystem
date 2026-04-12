@@ -18,81 +18,77 @@ public class ReportService : IReportService
         _currentUserService = currentUserService;
     }
 
-    public async Task<DashboardStatsDto> GetDashboardStatsAsync(Guid propertyId, CancellationToken cancellationToken = default)
+    public async Task<TenantDashboardDto> GetTenantDashboardAsync(TenantDashboardRequestDto request, CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new BadRequestException("Tenant aniqlanmadi.");
+        var tenantId = ResolveTenantId(request.TenantId);
 
-        var tenantId = _currentUserService.TenantId.Value;
-
-        var reservations = await _context.Reservations
+        var tenant = await _context.Tenants
             .AsNoTracking()
-            .Where(x => x.TenantId == tenantId && x.PropertyId == propertyId)
-            .ToListAsync(cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == tenantId, cancellationToken);
 
-        return new DashboardStatsDto
+        if (tenant is null)
+            throw new NotFoundException("Tenant topilmadi.");
+
+        var fromUtc = request.FromUtc ?? DateTime.UtcNow.Date.AddDays(-30);
+        var toUtc = request.ToUtc ?? DateTime.UtcNow;
+
+        var reservationsQuery = _context.Reservations
+            .AsNoTracking()
+            .Where(x => x.TenantId == tenantId)
+            .Where(x => x.CreatedAtUtc >= fromUtc && x.CreatedAtUtc <= toUtc);
+
+        var totalProperties = await _context.Properties.CountAsync(x => x.TenantId == tenantId, cancellationToken);
+        var totalRooms = await _context.Rooms.CountAsync(x => x.TenantId == tenantId, cancellationToken);
+        var totalBeds = await _context.Beds.CountAsync(x => x.TenantId == tenantId, cancellationToken);
+
+        var totalReservations = await reservationsQuery.CountAsync(cancellationToken);
+        var pendingReservations = await reservationsQuery.CountAsync(x => x.Status == ReservationStatus.Pending, cancellationToken);
+        var confirmedReservations = await reservationsQuery.CountAsync(x => x.Status == ReservationStatus.Confirmed, cancellationToken);
+        var checkedInReservations = await reservationsQuery.CountAsync(x => x.Status == ReservationStatus.CheckedIn, cancellationToken);
+        var checkedOutReservations = await reservationsQuery.CountAsync(x => x.Status == ReservationStatus.CheckedOut, cancellationToken);
+        var cancelledReservations = await reservationsQuery.CountAsync(x => x.Status == ReservationStatus.Cancelled, cancellationToken);
+
+        var totalRevenue = await reservationsQuery.SumAsync(x => (decimal?)x.TotalAmount, cancellationToken) ?? 0;
+        var totalPaid = await reservationsQuery.SumAsync(x => (decimal?)x.PaidAmount, cancellationToken) ?? 0;
+
+        var occupiedCount = checkedInReservations + checkedOutReservations + confirmedReservations;
+        var occupancyRate = totalReservations == 0
+            ? 0
+            : decimal.Round((decimal)occupiedCount / totalReservations * 100, 2);
+
+        return new TenantDashboardDto
         {
-            TotalReservations = reservations.Count,
-            ConfirmedReservations = reservations.Count(x => x.Status == ReservationStatus.Confirmed),
-            CheckedInReservations = reservations.Count(x => x.Status == ReservationStatus.CheckedIn),
-            CheckedOutReservations = reservations.Count(x => x.Status == ReservationStatus.CheckedOut),
-            CancelledReservations = reservations.Count(x => x.Status == ReservationStatus.Cancelled),
-            TotalRevenue = reservations.Sum(x => x.TotalAmount),
-            TotalPaid = reservations.Sum(x => x.PaidAmount),
-            TotalDue = reservations.Sum(x => x.TotalAmount - x.PaidAmount)
+            TenantId = tenant.Id,
+            TenantName = tenant.Name,
+            TotalProperties = totalProperties,
+            TotalRooms = totalRooms,
+            TotalBeds = totalBeds,
+            TotalReservations = totalReservations,
+            PendingReservations = pendingReservations,
+            ConfirmedReservations = confirmedReservations,
+            CheckedInReservations = checkedInReservations,
+            CheckedOutReservations = checkedOutReservations,
+            CancelledReservations = cancelledReservations,
+            TotalRevenue = totalRevenue,
+            TotalPaid = totalPaid,
+            OutstandingAmount = totalRevenue - totalPaid,
+            OccupancyRate = occupancyRate
         };
     }
 
-    public async Task<OccupancyReportDto> GetOccupancyAsync(Guid propertyId, DateTime checkInDate, DateTime checkOutDate, CancellationToken cancellationToken = default)
+    private Guid ResolveTenantId(Guid? requestedTenantId)
     {
+        if (_currentUserService.IsSuperAdmin)
+        {
+            if (requestedTenantId.HasValue)
+                return requestedTenantId.Value;
+
+            throw new BadRequestException("SuperAdmin uchun TenantId yuborilishi shart.");
+        }
+
         if (!_currentUserService.TenantId.HasValue)
             throw new BadRequestException("Tenant aniqlanmadi.");
 
-        var tenantId = _currentUserService.TenantId.Value;
-
-        var checkInUtc = DateTime.SpecifyKind(checkInDate, DateTimeKind.Utc);
-        var checkOutUtc = DateTime.SpecifyKind(checkOutDate, DateTimeKind.Utc);
-
-        var activeStatuses = new[]
-        {
-            ReservationStatus.Pending,
-            ReservationStatus.Confirmed,
-            ReservationStatus.CheckedIn
-        };
-
-        var totalRooms = await _context.Rooms.CountAsync(x =>
-            x.TenantId == tenantId && x.PropertyId == propertyId, cancellationToken);
-
-        var reservedRooms = await _context.ReservationItems
-            .Where(x => x.RoomId.HasValue)
-            .Where(x => x.Room!.TenantId == tenantId && x.Room.PropertyId == propertyId)
-            .Where(x => activeStatuses.Contains(x.Reservation.Status))
-            .Where(x => checkInUtc < x.Reservation.CheckOutDate && checkOutUtc > x.Reservation.CheckInDate)
-            .Select(x => x.RoomId!.Value)
-            .Distinct()
-            .CountAsync(cancellationToken);
-
-        var totalBeds = await _context.Beds.CountAsync(x =>
-            x.TenantId == tenantId && x.Room.PropertyId == propertyId, cancellationToken);
-
-        var reservedBeds = await _context.ReservationItems
-            .Where(x => x.BedId.HasValue)
-            .Where(x => x.Bed!.TenantId == tenantId && x.Bed.Room.PropertyId == propertyId)
-            .Where(x => activeStatuses.Contains(x.Reservation.Status))
-            .Where(x => checkInUtc < x.Reservation.CheckOutDate && checkOutUtc > x.Reservation.CheckInDate)
-            .Select(x => x.BedId!.Value)
-            .Distinct()
-            .CountAsync(cancellationToken);
-
-        return new OccupancyReportDto
-        {
-            PropertyId = propertyId,
-            TotalRooms = totalRooms,
-            ReservedRooms = reservedRooms,
-            AvailableRooms = totalRooms - reservedRooms,
-            TotalBeds = totalBeds,
-            ReservedBeds = reservedBeds,
-            AvailableBeds = totalBeds - reservedBeds
-        };
+        return _currentUserService.TenantId.Value;
     }
 }

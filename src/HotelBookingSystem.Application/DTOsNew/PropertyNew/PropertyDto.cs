@@ -11,4 +11,5 @@ public class PropertyDto
     public string? Country { get; set; }
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }
+    public bool IsPublished { get; set; }
 }

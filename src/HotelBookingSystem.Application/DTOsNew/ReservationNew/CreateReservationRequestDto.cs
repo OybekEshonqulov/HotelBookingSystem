@@ -4,22 +4,15 @@ namespace HotelBookingSystem.Application.DTOsNew.ReservationNew;
 
 public class CreateReservationRequestDto
 {
+    public Guid? TenantId { get; set; }
     public Guid PropertyId { get; set; }
-
-    public string GuestFirstName { get; set; } = default!;
-    public string GuestLastName { get; set; } = default!;
-    public string? GuestPhoneNumber { get; set; }
-    public string? GuestEmail { get; set; }
-    public string? PassportNumber { get; set; }
-    public string? Nationality { get; set; }
-
+    public Guid GuestId { get; set; }
     public DateTime CheckInDate { get; set; }
     public DateTime CheckOutDate { get; set; }
-
-    public ReservationSource Source { get; set; } = ReservationSource.AdminPanel;
+    public ReservationSource Source { get; set; }
     public int AdultsCount { get; set; }
     public int ChildrenCount { get; set; }
+    public decimal TotalAmount { get; set; }
+    public string CurrencyCode { get; set; } = "UZS";
     public string? Notes { get; set; }
-
-    public List<CreateReservationItemRequestDto> Items { get; set; } = new();
 }

@@ -22,12 +22,12 @@ public class RolesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAll([FromQuery] Guid? tenantId, CancellationToken cancellationToken)
     {
         if (!_currentUserService.Permissions.Contains("roles.view"))
             return Forbid();
 
-        var result = await _roleManagementService.GetAllAsync(cancellationToken);
+        var result = await _roleManagementService.GetAllAsync(tenantId, cancellationToken);
         return Ok(result);
     }
 

@@ -14,7 +14,7 @@ namespace HotelBookingSystem.Domain.EntitiesNew
         public string? Country { get; set; }
         public decimal? Latitude { get; set; }
         public decimal? Longitude { get; set; }
-
+        public bool IsPublished { get; set; }
         public Tenant Tenant { get; set; } = default!;
         public ICollection<RoomType> RoomTypes { get; set; } = new List<RoomType>();
         public ICollection<PropertyImage> Images { get; set; } = new List<PropertyImage>();

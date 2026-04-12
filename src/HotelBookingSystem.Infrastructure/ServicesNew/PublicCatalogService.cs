@@ -26,13 +26,14 @@ public class PublicCatalogService : IPublicCatalogService
         var pageSize = request.PageSize <= 0 ? 12 : request.PageSize;
 
         var query = _context.Properties
-            .AsNoTracking()
-            .Where(x => x.Tenant.Status == PropertyStatus.Active)
-            .Include(x => x.Tenant)
-            .Include(x => x.RoomTypes)
-            .Include(x => x.Images)
-            .Include(x => x.Reviews)
-            .AsQueryable();
+     .AsNoTracking()
+     .Where(x => x.IsPublished)
+     .Where(x => x.Tenant.Status == PropertyStatus.Active)
+     .Include(x => x.Tenant)
+     .Include(x => x.RoomTypes)
+     .Include(x => x.Images)
+     .Include(x => x.Reviews)
+     .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
@@ -83,7 +84,7 @@ public class PublicCatalogService : IPublicCatalogService
                     .OrderByDescending(i => i.IsMain)
                     .Select(i => i.FilePath)
                     .FirstOrDefault(),
-                MinPrice = x.RoomTypes.Any() ? x.RoomTypes.Min(rt => rt.BasePrice) : 0,
+                MinPrice = x.RoomTypes.Any(rt => rt.IsPublished) ? x.RoomTypes.Where(rt => rt.IsPublished).Min(rt => rt.BasePrice) : 0,
                 AvgRating = x.Reviews.Any() ? Math.Round((decimal)x.Reviews.Average(r => r.Rating), 1) : null,
                 ReviewCount = x.Reviews.Count
             })
@@ -105,7 +106,7 @@ public class PublicCatalogService : IPublicCatalogService
     {
         return await _context.Properties
             .AsNoTracking()
-            .Where(x => x.Id == propertyId && x.Tenant.Status == PropertyStatus.Active)
+            .Where(x => x.Id == propertyId && x.IsPublished && x.Tenant.Status == PropertyStatus.Active)
             .Include(x => x.Tenant)
             .Include(x => x.Images)
             .Include(x => x.Reviews)
@@ -155,17 +156,18 @@ public class PublicCatalogService : IPublicCatalogService
                     })
                     .ToList(),
                 RoomTypes = x.RoomTypes
-                    .OrderBy(rt => rt.BasePrice)
-                    .Select(rt => new PublicRoomTypeDto
-                    {
-                        Id = rt.Id,
-                        Name = rt.Name,
-                        Capacity = rt.Capacity,
-                        BasePrice = rt.BasePrice,
-                        RoomsCount = rt.Rooms.Count,
-                        BedsCount = rt.Rooms.SelectMany(r => r.Beds).Count()
-                    })
-                    .ToList()
+    .Where(rt => rt.IsPublished)
+    .OrderBy(rt => rt.BasePrice)
+    .Select(rt => new PublicRoomTypeDto
+    {
+        Id = rt.Id,
+        Name = rt.Name,
+        Capacity = rt.Capacity,
+        BasePrice = rt.BasePrice,
+        RoomsCount = rt.Rooms.Count(r => r.IsPublished),
+        BedsCount = rt.Rooms.SelectMany(r => r.Beds).Count(b => b.IsPublished)
+    })
+    .ToList()
             })
             .FirstOrDefaultAsync(cancellationToken);
     }
@@ -185,7 +187,7 @@ public class PublicCatalogService : IPublicCatalogService
             .Include(x => x.Tenant)
             .FirstOrDefaultAsync(x => x.Id == request.PropertyId, cancellationToken);
 
-        if (property is null || property.Tenant.Status != PropertyStatus.Active)
+        if (property is null || property.Tenant.Status != PropertyStatus.Active || !property.IsPublished)
             throw new NotFoundException("Property topilmadi.");
 
         var activeStatuses = new[]
@@ -207,6 +209,8 @@ public class PublicCatalogService : IPublicCatalogService
         return await _context.Rooms
             .AsNoTracking()
             .Where(x => x.PropertyId == request.PropertyId)
+            .Where(x => x.IsPublished)
+            .Where(x => x.RoomType.IsPublished)
             .Where(x => x.Status == RoomStatus.Available)
             .Where(x => !reservedRoomIds.Contains(x.Id))
             .Include(x => x.RoomType)
@@ -238,7 +242,7 @@ public class PublicCatalogService : IPublicCatalogService
             .Include(x => x.Tenant)
             .FirstOrDefaultAsync(x => x.Id == request.PropertyId, cancellationToken);
 
-        if (property is null || property.Tenant.Status != PropertyStatus.Active)
+        if (property is null || property.Tenant.Status != PropertyStatus.Active || !property.IsPublished)
             throw new NotFoundException("Property topilmadi.");
 
         var activeStatuses = new[]
@@ -261,6 +265,9 @@ public class PublicCatalogService : IPublicCatalogService
             .AsNoTracking()
             .Where(x => x.Room.PropertyId == request.PropertyId)
             .Where(x => x.Status == BedStatus.Available)
+            .Where(x => x.IsPublished)
+            .Where(x => x.Room.IsPublished)
+            .Where(x => x.Room.RoomType.IsPublished)
             .Where(x => !reservedBedIds.Contains(x.Id))
             .Include(x => x.Room)
                 .ThenInclude(r => r.RoomType)

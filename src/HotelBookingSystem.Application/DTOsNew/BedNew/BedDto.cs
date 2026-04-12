@@ -7,4 +7,5 @@ public class BedDto
     public Guid RoomId { get; set; }
     public string BedCode { get; set; } = default!;
     public decimal? BedPrice { get; set; }
+    public bool IsPublished { get; set; }
 }

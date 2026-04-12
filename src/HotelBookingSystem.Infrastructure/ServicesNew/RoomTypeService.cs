@@ -1,7 +1,7 @@
-﻿using HotelBookingSystem.Application.DTOsNew.RoomTypeNew;
+﻿using HotelBookingSystem.Application.DTOsNew.CommonNew;
+using HotelBookingSystem.Application.DTOsNew.RoomTypeNew;
 using HotelBookingSystem.Application.ExceptionsNew;
 using HotelBookingSystem.Application.InterfacesNew.ServicesNew;
-using HotelBookingSystem.Domain.EntitiesNew;
 using HotelBookingSystem.Infrastructure.PersistenceNew;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,23 +20,19 @@ public class RoomTypeService : IRoomTypeService
 
     public async Task<RoomTypeDto> CreateAsync(CreateRoomTypeRequestDto request, CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new BadRequestException("Tenant aniqlanmadi.");
-
         var property = await _context.Properties
             .AsNoTracking()
-            .FirstOrDefaultAsync(x =>
-                x.Id == request.PropertyId &&
-                x.TenantId == _currentUserService.TenantId.Value,
-                cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == request.PropertyId, cancellationToken);
 
         if (property is null)
             throw new NotFoundException("Property topilmadi.");
 
+        EnsureTenantAccess(property.TenantId);
+
         var exists = await _context.RoomTypes.AnyAsync(x =>
             x.PropertyId == request.PropertyId &&
-            x.TenantId == _currentUserService.TenantId.Value &&
-            x.Name == request.Name,
+            x.TenantId == property.TenantId &&
+            x.Name == request.Name.Trim(),
             cancellationToken);
 
         if (exists)
@@ -44,35 +40,34 @@ public class RoomTypeService : IRoomTypeService
 
         var roomType = new Domain.EntitiesNew.RoomType
         {
-            TenantId = _currentUserService.TenantId.Value,
+            TenantId = property.TenantId,
             PropertyId = request.PropertyId,
-            Name = request.Name,
+            Name = request.Name.Trim(),
             Capacity = request.Capacity,
-            BasePrice = request.BasePrice
+            BasePrice = request.BasePrice,
+            IsPublished = false
         };
 
         _context.RoomTypes.Add(roomType);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return new RoomTypeDto
-        {
-            Id = roomType.Id,
-            TenantId = roomType.TenantId,
-            PropertyId = roomType.PropertyId,
-            Name = roomType.Name,
-            Capacity = roomType.Capacity,
-            BasePrice = roomType.BasePrice
-        };
+        return Map(roomType);
     }
 
     public async Task<List<RoomTypeDto>> GetByPropertyAsync(Guid propertyId, CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new BadRequestException("Tenant aniqlanmadi.");
+        var property = await _context.Properties
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == propertyId, cancellationToken);
+
+        if (property is null)
+            throw new NotFoundException("Property topilmadi.");
+
+        EnsureTenantAccess(property.TenantId);
 
         return await _context.RoomTypes
             .AsNoTracking()
-            .Where(x => x.PropertyId == propertyId && x.TenantId == _currentUserService.TenantId.Value)
+            .Where(x => x.PropertyId == propertyId && x.TenantId == property.TenantId)
             .OrderBy(x => x.Name)
             .Select(x => new RoomTypeDto
             {
@@ -81,8 +76,47 @@ public class RoomTypeService : IRoomTypeService
                 PropertyId = x.PropertyId,
                 Name = x.Name,
                 Capacity = x.Capacity,
-                BasePrice = x.BasePrice
+                BasePrice = x.BasePrice,
+                IsPublished = x.IsPublished
             })
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<RoomTypeDto> UpdatePublishStatusAsync(Guid id, UpdatePublishStatusRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var roomType = await _context.RoomTypes.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+        if (roomType is null)
+            throw new NotFoundException("Room type topilmadi.");
+
+        EnsureTenantAccess(roomType.TenantId);
+
+        roomType.IsPublished = request.IsPublished;
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return Map(roomType);
+    }
+
+    private void EnsureTenantAccess(Guid tenantId)
+    {
+        if (_currentUserService.IsSuperAdmin)
+            return;
+
+        if (!_currentUserService.TenantId.HasValue || _currentUserService.TenantId.Value != tenantId)
+            throw new NotFoundException("Property topilmadi.");
+    }
+
+    private static RoomTypeDto Map(Domain.EntitiesNew.RoomType roomType)
+    {
+        return new RoomTypeDto
+        {
+            Id = roomType.Id,
+            TenantId = roomType.TenantId,
+            PropertyId = roomType.PropertyId,
+            Name = roomType.Name,
+            Capacity = roomType.Capacity,
+            BasePrice = roomType.BasePrice,
+            IsPublished = roomType.IsPublished
+        };
     }
 }

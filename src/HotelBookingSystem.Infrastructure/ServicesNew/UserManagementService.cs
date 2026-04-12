@@ -26,10 +26,10 @@ public class UserManagementService : IUserManagementService
 
     public async Task<UserDto> CreateAsync(CreateUserRequestDto request, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
+        var tenantId = ResolveTenantId(request.TenantId);
 
         var exists = await _context.AppUsers.AnyAsync(x =>
-            x.TenantId == tenantId && x.Email == request.Email, cancellationToken);
+            x.TenantId == tenantId && x.Email == request.Email.Trim(), cancellationToken);
 
         if (exists)
             throw new ConflictException("Bu email bilan user allaqachon mavjud.");
@@ -41,9 +41,9 @@ public class UserManagementService : IUserManagementService
         var user = new AppUser
         {
             TenantId = tenantId,
-            FirstName = request.FirstName,
-            LastName = request.LastName,
-            Email = request.Email,
+            FirstName = request.FirstName.Trim(),
+            LastName = request.LastName.Trim(),
+            Email = request.Email.Trim(),
             PasswordHash = _passwordService.HashPassword(request.Password),
             IsActive = true
         };
@@ -67,12 +67,18 @@ public class UserManagementService : IUserManagementService
 
     public async Task<PagedResultDto<UserDto>> GetPagedAsync(UserFilterRequestDto request, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
+        var query = _context.AppUsers.AsNoTracking().AsQueryable();
 
-        var query = _context.AppUsers
-            .AsNoTracking()
-            .Where(x => x.TenantId == tenantId)
-            .AsQueryable();
+        if (_currentUserService.IsSuperAdmin)
+        {
+            if (request.TenantId.HasValue)
+                query = query.Where(x => x.TenantId == request.TenantId.Value);
+        }
+        else
+        {
+            var tenantId = GetCurrentTenantId();
+            query = query.Where(x => x.TenantId == tenantId);
+        }
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
@@ -116,13 +122,11 @@ public class UserManagementService : IUserManagementService
 
     public async Task<UserDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
-
-        var exists = await _context.AppUsers
+        var user = await _context.AppUsers
             .AsNoTracking()
-            .AnyAsync(x => x.Id == id && x.TenantId == tenantId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
-        if (!exists)
+        if (user is null || !CanAccessTenant(user.TenantId))
             return null;
 
         return await BuildUserDtoAsync(id, cancellationToken);
@@ -130,18 +134,16 @@ public class UserManagementService : IUserManagementService
 
     public async Task<UserDto> UpdateAsync(Guid id, UpdateUserRequestDto request, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
-
         var user = await _context.AppUsers
-            .FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
-        if (user is null)
+        if (user is null || !CanAccessTenant(user.TenantId))
             throw new NotFoundException("User topilmadi.");
 
         var exists = await _context.AppUsers.AnyAsync(x =>
-            x.TenantId == tenantId &&
+            x.TenantId == user.TenantId &&
             x.Id != id &&
-            x.Email == request.Email,
+            x.Email == request.Email.Trim(),
             cancellationToken);
 
         if (exists)
@@ -157,12 +159,10 @@ public class UserManagementService : IUserManagementService
 
     public async Task<UserDto> UpdateStatusAsync(Guid id, UpdateUserStatusRequestDto request, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
-
         var user = await _context.AppUsers
-            .FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
-        if (user is null)
+        if (user is null || !CanAccessTenant(user.TenantId))
             throw new NotFoundException("User topilmadi.");
 
         user.IsActive = request.IsActive;
@@ -173,16 +173,14 @@ public class UserManagementService : IUserManagementService
 
     public async Task<UserDto> AssignRolesAsync(AssignRolesRequestDto request, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
-
         var user = await _context.AppUsers
-            .FirstOrDefaultAsync(x => x.Id == request.UserId && x.TenantId == tenantId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == request.UserId, cancellationToken);
 
-        if (user is null)
+        if (user is null || !CanAccessTenant(user.TenantId))
             throw new NotFoundException("User topilmadi.");
 
         var roles = await _context.AppRoles
-            .Where(x => x.TenantId == tenantId && request.RoleIds.Contains(x.Id))
+            .Where(x => x.TenantId == user.TenantId && request.RoleIds.Contains(x.Id))
             .ToListAsync(cancellationToken);
 
         var oldUserRoles = await _context.AppUserRoles
@@ -204,12 +202,30 @@ public class UserManagementService : IUserManagementService
         return await BuildUserDtoAsync(user.Id, cancellationToken);
     }
 
-    private Guid GetTenantId()
+    private Guid ResolveTenantId(Guid? requestedTenantId)
+    {
+        if (_currentUserService.IsSuperAdmin)
+        {
+            if (requestedTenantId.HasValue)
+                return requestedTenantId.Value;
+
+            throw new BadRequestException("SuperAdmin uchun TenantId yuborilishi shart.");
+        }
+
+        return GetCurrentTenantId();
+    }
+
+    private Guid GetCurrentTenantId()
     {
         if (!_currentUserService.TenantId.HasValue)
             throw new BadRequestException("Tenant aniqlanmadi.");
 
         return _currentUserService.TenantId.Value;
+    }
+
+    private bool CanAccessTenant(Guid tenantId)
+    {
+        return _currentUserService.IsSuperAdmin || (_currentUserService.TenantId.HasValue && _currentUserService.TenantId.Value == tenantId);
     }
 
     private async Task<UserDto> BuildUserDtoAsync(Guid userId, CancellationToken cancellationToken)

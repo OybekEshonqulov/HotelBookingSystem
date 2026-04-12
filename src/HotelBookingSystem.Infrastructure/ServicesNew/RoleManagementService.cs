@@ -20,7 +20,7 @@ public class RoleManagementService : IRoleManagementService
 
     public async Task<RoleDto> CreateAsync(CreateRoleRequestDto request, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
+        var tenantId = ResolveTenantId(request.TenantId);
 
         if (string.IsNullOrWhiteSpace(request.Name))
             throw new BadRequestException("Role nomi kiritilishi shart.");
@@ -58,13 +58,21 @@ public class RoleManagementService : IRoleManagementService
         return await BuildRoleDtoAsync(role.Id, cancellationToken);
     }
 
-    public async Task<List<RoleDto>> GetAllAsync(CancellationToken cancellationToken = default)
+    public async Task<List<RoleDto>> GetAllAsync(Guid? tenantId = null, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
+        var query = _context.AppRoles.AsNoTracking().AsQueryable();
 
-        return await _context.AppRoles
-            .AsNoTracking()
-            .Where(x => x.TenantId == tenantId)
+        if (_currentUserService.IsSuperAdmin)
+        {
+            if (tenantId.HasValue)
+                query = query.Where(x => x.TenantId == tenantId.Value);
+        }
+        else
+        {
+            query = query.Where(x => x.TenantId == GetCurrentTenantId());
+        }
+
+        return await query
             .OrderBy(x => x.Name)
             .Select(x => new RoleDto
             {
@@ -82,13 +90,11 @@ public class RoleManagementService : IRoleManagementService
 
     public async Task<RoleDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
-
-        var exists = await _context.AppRoles
+        var role = await _context.AppRoles
             .AsNoTracking()
-            .AnyAsync(x => x.Id == id && x.TenantId == tenantId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
-        if (!exists)
+        if (role is null || !CanAccessTenant(role.TenantId))
             return null;
 
         return await BuildRoleDtoAsync(id, cancellationToken);
@@ -96,19 +102,17 @@ public class RoleManagementService : IRoleManagementService
 
     public async Task<RoleDto> UpdateAsync(Guid id, UpdateRoleRequestDto request, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
-
         var role = await _context.AppRoles
-            .FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
-        if (role is null)
+        if (role is null || !CanAccessTenant(role.TenantId))
             throw new NotFoundException("Role topilmadi.");
 
         if (string.IsNullOrWhiteSpace(request.Name))
             throw new BadRequestException("Role nomi kiritilishi shart.");
 
         var duplicate = await _context.AppRoles.AnyAsync(x =>
-            x.TenantId == tenantId &&
+            x.TenantId == role.TenantId &&
             x.Id != id &&
             x.Name == request.Name.Trim(),
             cancellationToken);
@@ -144,12 +148,10 @@ public class RoleManagementService : IRoleManagementService
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var tenantId = GetTenantId();
-
         var role = await _context.AppRoles
-            .FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
-        if (role is null)
+        if (role is null || !CanAccessTenant(role.TenantId))
             throw new NotFoundException("Role topilmadi.");
 
         var assignedToUsers = await _context.AppUserRoles
@@ -182,12 +184,30 @@ public class RoleManagementService : IRoleManagementService
             .ToListAsync(cancellationToken);
     }
 
-    private Guid GetTenantId()
+    private Guid ResolveTenantId(Guid? requestedTenantId)
+    {
+        if (_currentUserService.IsSuperAdmin)
+        {
+            if (requestedTenantId.HasValue)
+                return requestedTenantId.Value;
+
+            throw new BadRequestException("SuperAdmin uchun TenantId yuborilishi shart.");
+        }
+
+        return GetCurrentTenantId();
+    }
+
+    private Guid GetCurrentTenantId()
     {
         if (!_currentUserService.TenantId.HasValue)
             throw new BadRequestException("Tenant aniqlanmadi.");
 
         return _currentUserService.TenantId.Value;
+    }
+
+    private bool CanAccessTenant(Guid tenantId)
+    {
+        return _currentUserService.IsSuperAdmin || (_currentUserService.TenantId.HasValue && _currentUserService.TenantId.Value == tenantId);
     }
 
     private async Task<RoleDto> BuildRoleDtoAsync(Guid roleId, CancellationToken cancellationToken)
