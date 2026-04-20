@@ -8,9 +8,10 @@ namespace HotelBookingSystem.Infrastructure.PersistenceNew.SeedNew;
 
 public static class DatabaseInitializer
 {
-    public static async Task SeedAsync(AppDbContext context)
+    public static async Task SeedAsync(AppDbContext context, bool applyMigrations = true)
     {
-        await context.Database.MigrateAsync();
+        if (applyMigrations)
+            await context.Database.MigrateAsync();
 
         if (!await context.Permissions.AnyAsync())
         {

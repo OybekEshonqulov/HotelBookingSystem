@@ -31,6 +31,7 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
@@ -115,7 +116,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await DatabaseInitializer.SeedAsync(dbContext);
+    await DatabaseInitializer.SeedAsync(dbContext, applyMigrations: false);
 }
 
 app.UseSwagger();
