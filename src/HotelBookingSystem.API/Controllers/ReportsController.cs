@@ -31,4 +31,16 @@ public class ReportsController : ControllerBase
         var result = await _reportService.GetTenantDashboardAsync(request, cancellationToken);
         return Ok(result);
     }
+
+    [HttpPost("system-dashboard")]
+    public async Task<IActionResult> GetSystemDashboard(
+        [FromBody] SystemDashboardRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (!_currentUserService.Permissions.Contains(PermissionCodes.ReportsView))
+            return Forbid();
+
+        var result = await _reportService.GetSystemDashboardAsync(request, cancellationToken);
+        return Ok(result);
+    }
 }

@@ -27,7 +27,7 @@ public class TenantService : ITenantService
 
     public async Task<TenantDto> CreateAsync(CreateTenantRequestDto request, CancellationToken cancellationToken = default)
     {
-        await EnsureTenantIsUniqueAsync(request.Name, request.Subdomain, cancellationToken);
+        await EnsureTenantIsUniqueAsync(request.Name, request.Subdomain, null, cancellationToken);
 
         var tenant = new Tenant
         {
@@ -45,7 +45,7 @@ public class TenantService : ITenantService
         _context.Tenants.Add(tenant);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return MapTenant(tenant);
+        return await BuildTenantDtoAsync(tenant.Id, cancellationToken);
     }
 
     public async Task<TenantWithOwnerResultDto> CreateWithOwnerAsync(
@@ -67,7 +67,7 @@ public class TenantService : ITenantService
         if (string.IsNullOrWhiteSpace(request.OwnerPassword))
             throw new BadRequestException("Owner paroli kiritilishi shart.");
 
-        await EnsureTenantIsUniqueAsync(request.Name, request.Subdomain, cancellationToken);
+        await EnsureTenantIsUniqueAsync(request.Name, request.Subdomain, null, cancellationToken);
 
         await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
 
@@ -87,32 +87,47 @@ public class TenantService : ITenantService
         _context.Tenants.Add(tenant);
         await _context.SaveChangesAsync(cancellationToken);
 
-        var ownerRole = new AppRole
-        {
-            TenantId = tenant.Id,
-            Name = "Owner",
-            Description = "Tenant owner full access inside own tenant"
-        };
+        var ownerRole = await CreateRoleAsync(
+            tenant.Id,
+            "Owner",
+            "Tenant owner full access inside own tenant",
+            GetOwnerPermissionCodes(),
+            cancellationToken);
 
-        _context.AppRoles.Add(ownerRole);
-        await _context.SaveChangesAsync(cancellationToken);
+        await CreateRoleAsync(
+            tenant.Id,
+            "Manager",
+            "Hotel manager",
+            GetManagerPermissionCodes(),
+            cancellationToken);
 
-        var ownerPermissionCodes = GetOwnerPermissionCodes();
+        await CreateRoleAsync(
+            tenant.Id,
+            "Reception",
+            "Front desk / reservations",
+            GetReceptionPermissionCodes(),
+            cancellationToken);
 
-        var permissions = await _context.Permissions
-            .Where(x => ownerPermissionCodes.Contains(x.Code))
-            .ToListAsync(cancellationToken);
+        await CreateRoleAsync(
+            tenant.Id,
+            "Cashier",
+            "Payments only",
+            GetCashierPermissionCodes(),
+            cancellationToken);
 
-        foreach (var permission in permissions)
-        {
-            _context.RolePermissions.Add(new RolePermission
-            {
-                RoleId = ownerRole.Id,
-                PermissionId = permission.Id
-            });
-        }
+        await CreateRoleAsync(
+            tenant.Id,
+            "Housekeeping",
+            "Housekeeping operations",
+            GetHousekeepingPermissionCodes(),
+            cancellationToken);
 
-        await _context.SaveChangesAsync(cancellationToken);
+        await CreateRoleAsync(
+            tenant.Id,
+            "ReportViewer",
+            "Reports read only",
+            GetReportViewerPermissionCodes(),
+            cancellationToken);
 
         var ownerUser = new AppUser
         {
@@ -159,14 +174,40 @@ public class TenantService : ITenantService
                 Id = x.Id,
                 Name = x.Name,
                 Type = x.Type,
+                Status = x.Status,
                 Subdomain = x.Subdomain,
                 PhoneNumber = x.PhoneNumber,
                 Email = x.Email,
                 Address = x.Address,
                 CurrencyCode = x.CurrencyCode,
-                TimeZone = x.TimeZone
+                TimeZone = x.TimeZone,
+                TotalUsers = x.Users.Count(),
+                TotalProperties = x.Properties.Count()
             })
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<TenantDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await _context.Tenants
+            .AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => new TenantDto
+            {
+                Id = x.Id,
+                Name = x.Name,
+                Type = x.Type,
+                Status = x.Status,
+                Subdomain = x.Subdomain,
+                PhoneNumber = x.PhoneNumber,
+                Email = x.Email,
+                Address = x.Address,
+                CurrencyCode = x.CurrencyCode,
+                TimeZone = x.TimeZone,
+                TotalUsers = x.Users.Count(),
+                TotalProperties = x.Properties.Count()
+            })
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<TenantDto?> GetMyTenantAsync(CancellationToken cancellationToken = default)
@@ -174,52 +215,105 @@ public class TenantService : ITenantService
         if (!_currentUserService.TenantId.HasValue)
             return null;
 
-        return await _context.Tenants
-            .AsNoTracking()
-            .Where(x => x.Id == _currentUserService.TenantId.Value)
-            .Select(x => new TenantDto
-            {
-                Id = x.Id,
-                Name = x.Name,
-                Type = x.Type,
-                Subdomain = x.Subdomain,
-                PhoneNumber = x.PhoneNumber,
-                Email = x.Email,
-                Address = x.Address,
-                CurrencyCode = x.CurrencyCode,
-                TimeZone = x.TimeZone
-            })
-            .FirstOrDefaultAsync(cancellationToken);
+        return await GetByIdAsync(_currentUserService.TenantId.Value, cancellationToken);
+    }
+
+    public async Task<TenantDto> UpdateAsync(Guid id, UpdateTenantRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var tenant = await _context.Tenants.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (tenant is null)
+            throw new NotFoundException("Tenant topilmadi.");
+
+        await EnsureTenantIsUniqueAsync(request.Name, request.Subdomain, id, cancellationToken);
+
+        tenant.Name = request.Name.Trim();
+        tenant.Type = request.Type;
+        tenant.Subdomain = request.Subdomain?.Trim();
+        tenant.PhoneNumber = request.PhoneNumber?.Trim();
+        tenant.Email = request.Email?.Trim();
+        tenant.Address = request.Address?.Trim();
+        tenant.CurrencyCode = request.CurrencyCode.Trim();
+        tenant.TimeZone = request.TimeZone.Trim();
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return await BuildTenantDtoAsync(tenant.Id, cancellationToken);
+    }
+
+    public async Task<TenantDto> UpdateStatusAsync(Guid id, UpdateTenantStatusRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var tenant = await _context.Tenants.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (tenant is null)
+            throw new NotFoundException("Tenant topilmadi.");
+
+        tenant.Status = request.Status;
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return await BuildTenantDtoAsync(tenant.Id, cancellationToken);
+    }
+
+    private async Task<TenantDto> BuildTenantDtoAsync(Guid tenantId, CancellationToken cancellationToken)
+    {
+        var tenant = await GetByIdAsync(tenantId, cancellationToken);
+        if (tenant is null)
+            throw new NotFoundException("Tenant topilmadi.");
+
+        return tenant;
     }
 
     private async Task EnsureTenantIsUniqueAsync(
         string name,
         string? subdomain,
+        Guid? excludeTenantId,
         CancellationToken cancellationToken)
     {
+        var trimmedName = name.Trim();
+        var trimmedSubdomain = subdomain?.Trim();
+
         var exists = await _context.Tenants.AnyAsync(x =>
-            x.Name == name.Trim() ||
-            (!string.IsNullOrWhiteSpace(subdomain) && x.Subdomain == subdomain.Trim()),
+            x.Id != excludeTenantId &&
+            (
+                x.Name == trimmedName ||
+                (!string.IsNullOrWhiteSpace(trimmedSubdomain) && x.Subdomain == trimmedSubdomain)
+            ),
             cancellationToken);
 
         if (exists)
             throw new ConflictException("Bunday tenant allaqachon mavjud.");
     }
 
-    private static TenantDto MapTenant(Tenant tenant)
+    private async Task<AppRole> CreateRoleAsync(
+        Guid tenantId,
+        string roleName,
+        string description,
+        List<string> permissionCodes,
+        CancellationToken cancellationToken)
     {
-        return new TenantDto
+        var role = new AppRole
         {
-            Id = tenant.Id,
-            Name = tenant.Name,
-            Type = tenant.Type,
-            Subdomain = tenant.Subdomain,
-            PhoneNumber = tenant.PhoneNumber,
-            Email = tenant.Email,
-            Address = tenant.Address,
-            CurrencyCode = tenant.CurrencyCode,
-            TimeZone = tenant.TimeZone
+            TenantId = tenantId,
+            Name = roleName,
+            Description = description
         };
+
+        _context.AppRoles.Add(role);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        var permissions = await _context.Permissions
+            .Where(x => permissionCodes.Contains(x.Code))
+            .ToListAsync(cancellationToken);
+
+        foreach (var permission in permissions)
+        {
+            _context.RolePermissions.Add(new RolePermission
+            {
+                RoleId = role.Id,
+                PermissionId = permission.Id
+            });
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return role;
     }
 
     private static List<string> GetOwnerPermissionCodes()
@@ -247,6 +341,73 @@ public class TenantService : ITenantService
             PermissionCodes.PaymentsCreate,
 
             PermissionCodes.ReportsView
+        };
+    }
+
+    private static List<string> GetManagerPermissionCodes()
+    {
+        return new List<string>
+        {
+            PermissionCodes.UsersView,
+            PermissionCodes.RolesView,
+
+            PermissionCodes.PropertiesView,
+            PermissionCodes.PropertiesCreate,
+            PermissionCodes.PropertiesEdit,
+
+            PermissionCodes.ReservationsView,
+            PermissionCodes.ReservationsCreate,
+            PermissionCodes.ReservationsEdit,
+            PermissionCodes.ReservationsCancel,
+
+            PermissionCodes.PaymentsView,
+            PermissionCodes.PaymentsCreate,
+
+            PermissionCodes.ReportsView
+        };
+    }
+
+    private static List<string> GetReceptionPermissionCodes()
+    {
+        return new List<string>
+        {
+            PermissionCodes.PropertiesView,
+            PermissionCodes.ReservationsView,
+            PermissionCodes.ReservationsCreate,
+            PermissionCodes.ReservationsEdit,
+            PermissionCodes.ReservationsCancel,
+            PermissionCodes.PaymentsView,
+            PermissionCodes.PaymentsCreate
+        };
+    }
+
+    private static List<string> GetCashierPermissionCodes()
+    {
+        return new List<string>
+        {
+            PermissionCodes.PaymentsView,
+            PermissionCodes.PaymentsCreate,
+            PermissionCodes.ReservationsView
+        };
+    }
+
+    private static List<string> GetHousekeepingPermissionCodes()
+    {
+        return new List<string>
+        {
+            PermissionCodes.PropertiesView,
+            PermissionCodes.ReservationsView
+        };
+    }
+
+    private static List<string> GetReportViewerPermissionCodes()
+    {
+        return new List<string>
+        {
+            PermissionCodes.ReportsView,
+            PermissionCodes.PropertiesView,
+            PermissionCodes.ReservationsView,
+            PermissionCodes.PaymentsView
         };
     }
 }

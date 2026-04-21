@@ -2,6 +2,7 @@
 using HotelBookingSystem.Application.ExceptionsNew;
 using HotelBookingSystem.Application.InterfacesNew.ServicesNew;
 using HotelBookingSystem.Domain.EntitiesNew;
+using HotelBookingSystem.Domain.EnumsNew;
 using HotelBookingSystem.Infrastructure.ConfigurationsNew;
 using HotelBookingSystem.Infrastructure.PersistenceNew;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +37,16 @@ public class AuthService : IAuthService
 
         if (user is null || !user.IsActive)
             throw new BadRequestException("Email yoki parol noto‘g‘ri.");
+
+        var tenant = await _context.Tenants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == user.TenantId, cancellationToken);
+
+        if (tenant is null)
+            throw new BadRequestException("Tenant topilmadi.");
+
+        if (tenant.Status != PropertyStatus.Active)
+            throw new ForbiddenException("Ushbu mehmonxona kabineti vaqtincha nofaol qilingan.");
 
         var isPasswordValid = _passwordService.VerifyPassword(request.Password, user.PasswordHash);
         if (!isPasswordValid)
@@ -90,6 +101,16 @@ public class AuthService : IAuthService
 
         if (user is null || !user.IsActive)
             throw new BadRequestException("User faol emas yoki topilmadi.");
+
+        var tenant = await _context.Tenants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == user.TenantId, cancellationToken);
+
+        if (tenant is null)
+            throw new BadRequestException("Tenant topilmadi.");
+
+        if (tenant.Status != PropertyStatus.Active)
+            throw new ForbiddenException("Ushbu mehmonxona kabineti vaqtincha nofaol qilingan.");
 
         var roleNames = await _context.AppUserRoles
             .Where(x => x.UserId == user.Id)

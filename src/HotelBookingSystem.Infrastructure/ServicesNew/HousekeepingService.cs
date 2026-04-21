@@ -19,10 +19,7 @@ public class HousekeepingService : IHousekeepingService
 
     public async Task<RoomStatusDto> UpdateRoomStatusAsync(UpdateRoomStatusRequestDto request, CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new NotFoundException("Tenant aniqlanmadi.");
-
-        var tenantId = _currentUserService.TenantId.Value;
+        var tenantId = ResolveTenantId(request.TenantId);
 
         var room = await _context.Rooms
             .FirstOrDefaultAsync(x => x.Id == request.RoomId && x.TenantId == tenantId, cancellationToken);
@@ -43,10 +40,7 @@ public class HousekeepingService : IHousekeepingService
 
     public async Task<BedStatusDto> UpdateBedStatusAsync(UpdateBedStatusRequestDto request, CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new NotFoundException("Tenant aniqlanmadi.");
-
-        var tenantId = _currentUserService.TenantId.Value;
+        var tenantId = ResolveTenantId(request.TenantId);
 
         var bed = await _context.Beds
             .FirstOrDefaultAsync(x => x.Id == request.BedId && x.TenantId == tenantId, cancellationToken);
@@ -65,16 +59,16 @@ public class HousekeepingService : IHousekeepingService
         };
     }
 
-    public async Task<List<RoomStatusDto>> GetRoomsByPropertyAsync(Guid propertyId, CancellationToken cancellationToken = default)
+    public async Task<List<RoomStatusDto>> GetRoomsByPropertyAsync(
+        Guid propertyId,
+        Guid? tenantId = null,
+        CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new BadRequestException("Tenant aniqlanmadi.");
-
-        var tenantId = _currentUserService.TenantId.Value;
+        var resolvedTenantId = ResolveTenantId(tenantId);
 
         return await _context.Rooms
             .AsNoTracking()
-            .Where(x => x.PropertyId == propertyId && x.TenantId == tenantId)
+            .Where(x => x.PropertyId == propertyId && x.TenantId == resolvedTenantId)
             .OrderBy(x => x.Number)
             .Select(x => new RoomStatusDto
             {
@@ -85,16 +79,16 @@ public class HousekeepingService : IHousekeepingService
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<List<BedStatusDto>> GetBedsByRoomAsync(Guid roomId, CancellationToken cancellationToken = default)
+    public async Task<List<BedStatusDto>> GetBedsByRoomAsync(
+        Guid roomId,
+        Guid? tenantId = null,
+        CancellationToken cancellationToken = default)
     {
-        if (!_currentUserService.TenantId.HasValue)
-            throw new BadRequestException("Tenant aniqlanmadi.");
-
-        var tenantId = _currentUserService.TenantId.Value;
+        var resolvedTenantId = ResolveTenantId(tenantId);
 
         return await _context.Beds
             .AsNoTracking()
-            .Where(x => x.RoomId == roomId && x.TenantId == tenantId)
+            .Where(x => x.RoomId == roomId && x.TenantId == resolvedTenantId)
             .OrderBy(x => x.BedCode)
             .Select(x => new BedStatusDto
             {
@@ -103,5 +97,21 @@ public class HousekeepingService : IHousekeepingService
                 Status = x.Status
             })
             .ToListAsync(cancellationToken);
+    }
+
+    private Guid ResolveTenantId(Guid? requestedTenantId)
+    {
+        if (_currentUserService.IsSuperAdmin)
+        {
+            if (requestedTenantId.HasValue)
+                return requestedTenantId.Value;
+
+            throw new BadRequestException("SuperAdmin uchun TenantId yuborilishi shart.");
+        }
+
+        if (!_currentUserService.TenantId.HasValue)
+            throw new BadRequestException("Tenant aniqlanmadi.");
+
+        return _currentUserService.TenantId.Value;
     }
 }

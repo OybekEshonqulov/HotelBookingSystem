@@ -18,16 +18,16 @@ public class HousekeepingController : ControllerBase
     }
 
     [HttpGet("rooms/{propertyId:guid}")]
-    public async Task<IActionResult> GetRooms(Guid propertyId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetRooms(Guid propertyId, [FromQuery] Guid? tenantId, CancellationToken cancellationToken)
     {
-        var result = await _housekeepingService.GetRoomsByPropertyAsync(propertyId, cancellationToken);
+        var result = await _housekeepingService.GetRoomsByPropertyAsync(propertyId, tenantId, cancellationToken);
         return Ok(result);
     }
 
     [HttpGet("beds/{roomId:guid}")]
-    public async Task<IActionResult> GetBeds(Guid roomId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetBeds(Guid roomId, [FromQuery] Guid? tenantId, CancellationToken cancellationToken)
     {
-        var result = await _housekeepingService.GetBedsByRoomAsync(roomId, cancellationToken);
+        var result = await _housekeepingService.GetBedsByRoomAsync(roomId, tenantId, cancellationToken);
         return Ok(result);
     }
 
