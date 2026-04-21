@@ -29,12 +29,26 @@ public class CreateReservationRequestDtoValidator : AbstractValidator<CreateRese
             .GreaterThanOrEqualTo(0)
             .WithMessage("ChildrenCount 0 dan kichik bo‘lmasligi kerak.");
 
-        RuleFor(x => x.TotalAmount)
-            .GreaterThanOrEqualTo(0)
-            .WithMessage("TotalAmount manfiy bo‘lmasligi kerak.");
+        RuleFor(x => x.Items)
+            .NotNull().WithMessage("Items majburiy.")
+            .Must(items => items != null && items.Count > 0)
+            .WithMessage("Kamida bitta reservation item bo‘lishi kerak.");
 
-        RuleFor(x => x.CurrencyCode)
-            .NotEmpty().WithMessage("CurrencyCode majburiy.")
-            .MaximumLength(10).WithMessage("CurrencyCode 10 belgidan oshmasligi kerak.");
+        RuleForEach(x => x.Items)
+            .SetValidator(new CreateReservationItemRequestDtoValidator());
+    }
+}
+
+public class CreateReservationItemRequestDtoValidator : AbstractValidator<CreateReservationItemRequestDto>
+{
+    public CreateReservationItemRequestDtoValidator()
+    {
+        RuleFor(x => x.UnitPrice)
+            .GreaterThanOrEqualTo(0)
+            .WithMessage("UnitPrice manfiy bo‘lmasligi kerak.");
+
+        RuleFor(x => x)
+            .Must(x => (x.RoomId.HasValue && !x.BedId.HasValue) || (!x.RoomId.HasValue && x.BedId.HasValue))
+            .WithMessage("Har bir itemda faqat RoomId yoki faqat BedId bo‘lishi kerak.");
     }
 }

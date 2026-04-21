@@ -21,4 +21,5 @@ public class ReservationDto
     public decimal PaidAmount { get; set; }
     public string CurrencyCode { get; set; } = "UZS";
     public string? Notes { get; set; }
+    public List<ReservationItemDto> Items { get; set; } = new();
 }

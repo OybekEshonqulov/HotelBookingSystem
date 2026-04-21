@@ -12,7 +12,7 @@ public class CreateReservationRequestDto
     public ReservationSource Source { get; set; }
     public int AdultsCount { get; set; }
     public int ChildrenCount { get; set; }
-    public decimal TotalAmount { get; set; }
-    public string CurrencyCode { get; set; } = "UZS";
     public string? Notes { get; set; }
+
+    public List<CreateReservationItemRequestDto> Items { get; set; } = new();
 }

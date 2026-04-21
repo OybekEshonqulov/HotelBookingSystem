@@ -131,6 +131,7 @@ app.UseStaticFiles();
 app.UseCors("AllowFrontend");
 app.UseHttpsRedirection();
 app.UseAuthentication();
+app.UseMiddleware<TenantActivityMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

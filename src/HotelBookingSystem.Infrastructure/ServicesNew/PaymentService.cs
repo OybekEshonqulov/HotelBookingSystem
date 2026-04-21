@@ -21,11 +21,21 @@ public class PaymentService : IPaymentService
 
     public async Task<PaymentDto> CreateAsync(CreatePaymentRequestDto request, CancellationToken cancellationToken = default)
     {
+        if (request.Amount <= 0)
+            throw new BadRequestException("Payment amount 0 dan katta bo‘lishi kerak.");
+
         var reservation = await _context.Reservations
             .FirstOrDefaultAsync(x => x.Id == request.ReservationId, cancellationToken);
 
         if (reservation is null || !CanAccessTenant(reservation.TenantId))
             throw new NotFoundException("Reservation topilmadi.");
+
+        if (reservation.Status == HotelBookingSystem.Domain.EnumsNew.ReservationStatus.Cancelled)
+            throw new BadRequestException("Cancelled reservation uchun payment qabul qilib bo‘lmaydi.");
+
+        var newPaidAmount = reservation.PaidAmount + request.Amount;
+        if (newPaidAmount > reservation.TotalAmount)
+            throw new BadRequestException("To‘lov summasi reservation total amountdan oshib ketdi.");
 
         var payment = new Payment
         {
@@ -33,14 +43,14 @@ public class PaymentService : IPaymentService
             ReservationId = request.ReservationId,
             Amount = request.Amount,
             Method = request.Method,
-            TransactionId = request.TransactionId,
+            TransactionId = request.TransactionId?.Trim(),
             PaidAtUtc = request.PaidAtUtc,
-            Notes = request.Notes
+            Notes = request.Notes?.Trim()
         };
 
         _context.Payments.Add(payment);
 
-        reservation.PaidAmount += request.Amount;
+        reservation.PaidAmount = newPaidAmount;
 
         await _context.SaveChangesAsync(cancellationToken);
 

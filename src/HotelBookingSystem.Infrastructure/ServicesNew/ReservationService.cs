@@ -23,8 +23,15 @@ public class ReservationService : IReservationService
     public async Task<ReservationDto> CreateAsync(CreateReservationRequestDto request, CancellationToken cancellationToken = default)
     {
         var tenantId = ResolveTenantId(request.TenantId);
+
+        var checkInUtc = DateTime.SpecifyKind(request.CheckInDate, DateTimeKind.Utc);
+        var checkOutUtc = DateTime.SpecifyKind(request.CheckOutDate, DateTimeKind.Utc);
+
+        if (checkOutUtc <= checkInUtc)
+            throw new BadRequestException("Check-out sana check-in sanadan katta bo‘lishi kerak.");
+
         var property = await _context.Properties
-            .AsNoTracking()
+            .Include(x => x.Tenant)
             .FirstOrDefaultAsync(x => x.Id == request.PropertyId && x.TenantId == tenantId, cancellationToken);
 
         if (property is null)
@@ -36,23 +43,112 @@ public class ReservationService : IReservationService
         if (guest is null)
             throw new NotFoundException("Guest topilmadi.");
 
+        if (request.Items is null || request.Items.Count == 0)
+            throw new BadRequestException("Kamida bitta reservation item bo‘lishi kerak.");
+
+        var nights = (checkOutUtc.Date - checkInUtc.Date).Days;
+        if (nights <= 0)
+            throw new BadRequestException("Nights 0 bo‘lishi mumkin emas.");
+
+        var roomIds = request.Items.Where(x => x.RoomId.HasValue).Select(x => x.RoomId!.Value).Distinct().ToList();
+        var bedIds = request.Items.Where(x => x.BedId.HasValue).Select(x => x.BedId!.Value).Distinct().ToList();
+
+        foreach (var item in request.Items)
+        {
+            var hasRoom = item.RoomId.HasValue;
+            var hasBed = item.BedId.HasValue;
+
+            if (hasRoom == hasBed)
+                throw new BadRequestException("Har bir item faqat RoomId yoki faqat BedId ga ega bo‘lishi kerak.");
+        }
+
+        if (roomIds.Count > 0 && bedIds.Count > 0)
+            throw new BadRequestException("Hozircha bitta reservation ichida room va bed aralash bo‘lishi mumkin emas.");
+
+        var activeStatuses = new[]
+        {
+            ReservationStatus.Pending,
+            ReservationStatus.Confirmed,
+            ReservationStatus.CheckedIn
+        };
+
+        if (roomIds.Count > 0)
+        {
+            var rooms = await _context.Rooms
+                .AsNoTracking()
+                .Where(x => roomIds.Contains(x.Id) && x.TenantId == tenantId && x.PropertyId == property.Id)
+                .ToListAsync(cancellationToken);
+
+            if (rooms.Count != roomIds.Count)
+                throw new NotFoundException("Roomlardan biri topilmadi.");
+
+            var reservedRoomIds = await _context.ReservationItems
+                .Where(x => x.RoomId.HasValue && roomIds.Contains(x.RoomId.Value))
+                .Where(x => activeStatuses.Contains(x.Reservation.Status))
+                .Where(x => checkInUtc < x.Reservation.CheckOutDate && checkOutUtc > x.Reservation.CheckInDate)
+                .Select(x => x.RoomId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            if (reservedRoomIds.Count > 0)
+                throw new BadRequestException("Tanlangan roomlardan biri shu davrda band.");
+        }
+
+        if (bedIds.Count > 0)
+        {
+            var beds = await _context.Beds
+                .AsNoTracking()
+                .Include(x => x.Room)
+                .Where(x => bedIds.Contains(x.Id) && x.TenantId == tenantId)
+                .ToListAsync(cancellationToken);
+
+            if (beds.Count != bedIds.Count)
+                throw new NotFoundException("Bedlardan biri topilmadi.");
+
+            if (beds.Any(x => x.Room.PropertyId != property.Id))
+                throw new BadRequestException("Bed noto‘g‘ri propertyga tegishli.");
+
+            var reservedBedIds = await _context.ReservationItems
+                .Where(x => x.BedId.HasValue && bedIds.Contains(x.BedId.Value))
+                .Where(x => activeStatuses.Contains(x.Reservation.Status))
+                .Where(x => checkInUtc < x.Reservation.CheckOutDate && checkOutUtc > x.Reservation.CheckInDate)
+                .Select(x => x.BedId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            if (reservedBedIds.Count > 0)
+                throw new BadRequestException("Tanlangan bedlardan biri shu davrda band.");
+        }
+
         var reservation = new Reservation
         {
             TenantId = tenantId,
             PropertyId = request.PropertyId,
             GuestId = request.GuestId,
             ReservationNumber = "RSV-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss"),
-            CheckInDate = request.CheckInDate,
-            CheckOutDate = request.CheckOutDate,
+            CheckInDate = checkInUtc,
+            CheckOutDate = checkOutUtc,
             Status = ReservationStatus.Pending,
             Source = request.Source,
             AdultsCount = request.AdultsCount,
             ChildrenCount = request.ChildrenCount,
-            TotalAmount = request.TotalAmount,
+            CurrencyCode = property.Tenant.CurrencyCode,
             PaidAmount = 0,
-            CurrencyCode = request.CurrencyCode,
             Notes = request.Notes
         };
+
+        var reservationItems = request.Items.Select(x => new ReservationItem
+        {
+            TenantId = tenantId,
+            RoomId = x.RoomId,
+            BedId = x.BedId,
+            UnitPrice = x.UnitPrice,
+            Nights = nights,
+            TotalPrice = x.UnitPrice * nights
+        }).ToList();
+
+        reservation.TotalAmount = reservationItems.Sum(x => x.TotalPrice);
+        reservation.Items = reservationItems;
 
         _context.Reservations.Add(reservation);
         await _context.SaveChangesAsync(cancellationToken);
@@ -127,7 +223,16 @@ public class ReservationService : IReservationService
                 TotalAmount = x.TotalAmount,
                 PaidAmount = x.PaidAmount,
                 CurrencyCode = x.CurrencyCode,
-                Notes = x.Notes
+                Notes = x.Notes,
+                Items = x.Items.Select(i => new ReservationItemDto
+                {
+                    Id = i.Id,
+                    RoomId = i.RoomId,
+                    BedId = i.BedId,
+                    UnitPrice = i.UnitPrice,
+                    Nights = i.Nights,
+                    TotalPrice = i.TotalPrice
+                }).ToList()
             })
             .ToListAsync(cancellationToken);
 
@@ -220,7 +325,16 @@ public class ReservationService : IReservationService
                 TotalAmount = x.TotalAmount,
                 PaidAmount = x.PaidAmount,
                 CurrencyCode = x.CurrencyCode,
-                Notes = x.Notes
+                Notes = x.Notes,
+                Items = x.Items.Select(i => new ReservationItemDto
+                {
+                    Id = i.Id,
+                    RoomId = i.RoomId,
+                    BedId = i.BedId,
+                    UnitPrice = i.UnitPrice,
+                    Nights = i.Nights,
+                    TotalPrice = i.TotalPrice
+                }).ToList()
             })
             .FirstAsync(cancellationToken);
     }
